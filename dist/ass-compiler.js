@@ -866,8 +866,171 @@
     };
   }
 
+  var TimeSegments = function TimeSegments() {
+    this.startTimestamps = [];
+    this.endTimestamps = [];
+  };
+
+  TimeSegments.prototype.insert = function insert (start, end) {
+    var ref = [start, end].sort();
+      var startTime = ref[0];
+      var endTime = ref[1];
+    var ref$1 = this.checkWithIndex(startTime);
+      var startIn = ref$1.in;
+      var startIndex = ref$1.index;
+    var ref$2 = this.checkWithIndex(endTime);
+      var endIn = ref$2.in;
+      var endIndex = ref$2.index;
+
+    if (!startIn && !endIn && startIndex === endIndex) {
+      this.startTimestamps.splice(startIndex + 1, 0, startTime);
+      this.endTimestamps.splice(endIndex + 1, 0, endTime);
+    } else {
+      if (!startIn) { this.startTimestamps[startIndex + 1] = startTime; }
+      this.endTimestamps[startIn ? startIndex : endIndex] = endIn
+        ? this.endTimestamps[endIndex] : end;
+
+      var deleteIndex = startIndex === endIndex ? 0 : startIndex + 1;
+      var deleteCount = endIndex - startIndex - (startIn ? 0 : 1);
+      this.startTimestamps.splice(deleteIndex, deleteCount);
+      this.endTimestamps.splice(deleteIndex, deleteCount);
+    }
+  };
+
+  TimeSegments.prototype.checkWithIndex = function checkWithIndex (time) {
+    var index = this.startTimestamps.findIndex(function (startTime, ind, times) {
+      if (times.length === ind + 1) { return startTime <= time; }
+      return startTime <= time && times[ind + 1] >= time;
+    });
+    return {
+      in: index !== -1 && this.endTimestamps[index] >= time,
+      index: index,
+    };
+  };
+
+  TimeSegments.prototype.check = function check (time) {
+    return this.checkWithIndex(time).in;
+  };
+
+  var AssStream = function AssStream() {
+    this.lastLines = [];
+    this.timeSegments = new TimeSegments();
+
+    this.info = {};
+    this.styleFormat = [];
+    this.parsedStyle = [];
+    this.eventFormat = [];
+    this.newParsedComments = [];
+    this.newParsedDialogues = [];
+
+    this.parsingState = 0;
+
+    this.compiledStyles = {};
+    this.compiledDialogues = [];
+  };
+
+  var prototypeAccessors = { compiled: { configurable: true } };
+
+  AssStream.getParsingState = function getParsingState (line) {
+    if (/^\[Script Info\]/i.test(line)) { return 1; }
+    if (/^\[V4\+? Styles\]/i.test(line)) { return 2; }
+    if (/^\[Events\]/i.test(line)) { return 3; }
+    if (/^\[.*\]/.test(line)) { return 0; }
+    return -1;
+  };
+
+  AssStream.prototype.parse = function parse (text) {
+      var this$1 = this;
+      var ref;
+
+    var lines = text.split(/\r?\n/).filter(function (line) { return !this$1.lastLines.includes(line); });
+    (ref = this.lastLines).push.apply(ref, lines);
+
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i].trim();
+      if (/^;/.test(line)) { continue; }
+
+      var lineParsingState = AssStream.getParsingState(line);
+      if (lineParsingState === 0) { continue; }
+      else if (lineParsingState === -1) { lineParsingState = this.parsingState; }
+      else { this.parsingState = lineParsingState; }
+
+      switch (lineParsingState) {
+        default:
+          continue;
+        case 1: {
+          if (/:/.test(line)) {
+            var ref$1 = line.match(/(.*?)\s*:\s*(.*)/);
+              var key = ref$1[1];
+              var value = ref$1[2];
+            this.info[key] = value;
+          }
+          break;
+        }
+        case 2: {
+          if (/^Format\s*:/i.test(line)) {
+            this.styleFormat = parseFormat(line);
+          }
+          if (/^Style\s*:/i.test(line)) {
+            this.parsedStyle.push(parseStyle(line));
+          }
+          break;
+        }
+        case 3: {
+          if (/^Format\s*:/i.test(line)) {
+            this.eventFormat = parseFormat(line);
+          }
+          if (/^(?:Comment|Dialogue)\s*:/i.test(line)) {
+            var ref$2 = line.match(/^(\w+?)\s*:\s*(.*)/i);
+              var key$1 = ref$2[1];
+              var value$1 = ref$2[2];
+            var eventType = key$1.toLowerCase();
+            var eventValue = parseDialogue(value$1, this.eventFormat);
+            this.timeSegments.insert(eventValue.Start, eventValue.End);
+            if (eventType === 'comment') { this.newParsedComments.push(eventValue); }
+            if (eventType === 'dialogue') { this.newParsedDialogues.push(eventValue); }
+          }
+          break;
+        }
+      }
+    }
+  };
+
+  AssStream.prototype.compile = function compile (text) {
+      var ref;
+
+    this.parse(text);
+
+    this.compiledStyles = compileStyles({
+      info: this.info,
+      style: this.parsedStyle,
+      format: this.styleFormat,
+      defaultStyle: {},
+    });
+
+    (ref = this.compiledDialogues).push.apply(ref, compileDialogues({
+      styles: this.compiledStyles,
+      dialogues: this.newParsedDialogues,
+    }));
+    this.newParsedDialogues = [];
+  };
+
+  prototypeAccessors.compiled.get = function () {
+    return {
+      info: this.info,
+      width: this.info.PlayResX * 1 || null,
+      height: this.info.PlayResY * 1 || null,
+      collisions: this.info.Collisions || 'Normal',
+      styles: this.compiledStyles,
+      dialogues: this.compiledDialogues,
+    };
+  };
+
+  Object.defineProperties( AssStream.prototype, prototypeAccessors );
+
   exports.parse = parse;
   exports.compile = compile;
+  exports.AssStream = AssStream;
 
   Object.defineProperty(exports, '__esModule', { value: true });
 
