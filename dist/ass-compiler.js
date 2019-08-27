@@ -1,8 +1,8 @@
 (function (global, factory) {
   typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports) :
   typeof define === 'function' && define.amd ? define(['exports'], factory) :
-  (global = global || self, factory(global.assCompiler = {}));
-}(this, function (exports) { 'use strict';
+  (factory((global.assCompiler = {})));
+}(this, (function (exports) { 'use strict';
 
   function parseEffect(text) {
     var param = text
@@ -866,9 +866,121 @@
     };
   }
 
-  exports.compile = compile;
+  var AssStream = function AssStream() {
+    this.info = {};
+    this.styleFormat = [];
+    this.parsedStyle = [];
+    this.eventFormat = [];
+    this.newParsedComments = [];
+    this.newParsedDialogues = [];
+
+    this.parsingState = 0;
+
+    this.compiledStyles = {};
+    this.compiledDialogues = [];
+  };
+
+  var prototypeAccessors = { compiled: { configurable: true } };
+
+  AssStream.getParsingState = function getParsingState (line) {
+    if (/^\[Script Info\]/i.test(line)) { return 1; }
+    if (/^\[V4\+? Styles\]/i.test(line)) { return 2; }
+    if (/^\[Events\]/i.test(line)) { return 3; }
+    if (/^\[.*\]/.test(line)) { return 0; }
+    return -1;
+  };
+
+  AssStream.prototype.parse = function parse (text) {
+    var lines = text.split(/\r?\n/);
+
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i].trim();
+      if (/^;/.test(line)) { continue; }
+
+      var lineParsingState = AssStream.getParsingState(line);
+      if (lineParsingState === 0) { continue; }
+      else if (lineParsingState === -1) { lineParsingState = this.parsingState; }
+      else { this.parsingState = lineParsingState; }
+
+      switch (lineParsingState) {
+        default:
+          continue;
+        case 1: {
+          if (/:/.test(line)) {
+            var ref = line.match(/(.*?)\s*:\s*(.*)/);
+              var key = ref[1];
+              var value = ref[2];
+            this.info[key] = value;
+          }
+          break;
+        }
+        case 2: {
+          if (/^Format\s*:/i.test(line)) {
+            this.styleFormat = parseFormat(line);
+          }
+          if (/^Style\s*:/i.test(line)) {
+            this.parsedStyle.push(parseStyle(line));
+          }
+          break;
+        }
+        case 3: {
+          if (/^Format\s*:/i.test(line)) {
+            this.eventFormat = parseFormat(line);
+          }
+          if (/^(?:Comment|Dialogue)\s*:/i.test(line)) {
+            var ref$1 = line.match(/^(\w+?)\s*:\s*(.*)/i);
+              var key$1 = ref$1[1];
+              var value$1 = ref$1[2];
+            var eventType = key$1.toLowerCase();
+            var eventValue = parseDialogue(value$1, this.eventFormat);
+            if (eventType === 'comment') { this.newParsedComments.push(eventValue); }
+            if (eventType === 'dialogue') { this.newParsedDialogues.push(eventValue); }
+          }
+          break;
+        }
+      }
+    }
+  };
+
+  AssStream.prototype.compile = function compile (text) {
+      var ref;
+
+    this.parse(text);
+
+    this.compiledStyles = compileStyles({
+      info: this.info,
+      style: this.parsedStyle,
+      format: this.styleFormat,
+      defaultStyle: {},
+    });
+
+    (ref = this.compiledDialogues).push.apply(ref, compileDialogues({
+      styles: this.compiledStyles,
+      dialogues: this.newParsedDialogues,
+    }));
+    var result = [].concat( this.newParsedDialogues );
+    this.newParsedDialogues = [];
+
+    return result;
+  };
+
+  prototypeAccessors.compiled.get = function () {
+    return {
+      info: this.info,
+      width: this.info.PlayResX * 1 || null,
+      height: this.info.PlayResY * 1 || null,
+      collisions: this.info.Collisions || 'Normal',
+      styles: this.compiledStyles,
+      dialogues: this.compiledDialogues,
+    };
+  };
+
+  Object.defineProperties( AssStream.prototype, prototypeAccessors );
+
   exports.parse = parse;
+  exports.compile = compile;
+  exports.AssStream = AssStream;
 
   Object.defineProperty(exports, '__esModule', { value: true });
 
-}));
+})));

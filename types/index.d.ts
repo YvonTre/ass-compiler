@@ -80,7 +80,12 @@ export interface ParsedASS {
  */
 export function parse(text: string): ParsedASS;
 
-
+// Ass Stream class
+export declare class AssStream {
+    public parse(text: string): void;
+    public compile(text: string): ParsedASSEventObject[];
+    get compiled(): CompiledASS;
+}
 
 // Compiled Script Info
 
@@ -172,6 +177,7 @@ export interface DialogueSlice {
     name: string;
     borderStyle: 1 | 3;
     fragments: DialogueFragment[];
+    tag: Tags;
 }
 
 export interface DialogueDrawingInstructionPoint {
@@ -218,6 +224,14 @@ export interface Dialogue {
     alignment: number;
     slices: DialogueSlice[];
     clip?: DialogueClip;
+    pos?: {
+        x: number;
+        y: number;
+    };
+    org?: {
+        x: number;
+        y: number;
+    };
 }
 
 export interface CompiledASS {

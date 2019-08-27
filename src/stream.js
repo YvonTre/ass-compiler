@@ -4,53 +4,8 @@ import { parseDialogue } from './parser/dialogue';
 import { compileStyles } from './compiler/styles';
 import { compileDialogues } from './compiler/dialogues';
 
-export class TimeSegments {
-  constructor() {
-    this.startTimestamps = [];
-    this.endTimestamps = [];
-  }
-
-  insert(start, end) {
-    const [startTime, endTime] = [start, end].sort();
-    const { in: startIn, index: startIndex } = this.checkWithIndex(startTime);
-    const { in: endIn, index: endIndex } = this.checkWithIndex(endTime);
-
-    if (!startIn && !endIn && startIndex === endIndex) {
-      this.startTimestamps.splice(startIndex + 1, 0, startTime);
-      this.endTimestamps.splice(endIndex + 1, 0, endTime);
-    } else {
-      if (!startIn) this.startTimestamps[startIndex + 1] = startTime;
-      this.endTimestamps[startIn ? startIndex : endIndex] = endIn
-        ? this.endTimestamps[endIndex] : end;
-
-      const deleteIndex = startIndex === endIndex ? 0 : startIndex + 1;
-      const deleteCount = endIndex - startIndex - (startIn ? 0 : 1);
-      this.startTimestamps.splice(deleteIndex, deleteCount);
-      this.endTimestamps.splice(deleteIndex, deleteCount);
-    }
-  }
-
-  checkWithIndex(time) {
-    const index = this.startTimestamps.findIndex((startTime, ind, times) => {
-      if (times.length === ind + 1) return startTime <= time;
-      return startTime <= time && times[ind + 1] >= time;
-    });
-    return {
-      in: index !== -1 && this.endTimestamps[index] >= time,
-      index,
-    };
-  }
-
-  check(time) {
-    return this.checkWithIndex(time).in;
-  }
-}
-
 export class AssStream {
   constructor() {
-    this.lastLines = [];
-    this.timeSegments = new TimeSegments();
-
     this.info = {};
     this.styleFormat = [];
     this.parsedStyle = [];
@@ -73,8 +28,7 @@ export class AssStream {
   }
 
   parse(text) {
-    const lines = text.split(/\r?\n/).filter(line => !this.lastLines.includes(line));
-    this.lastLines.push(...lines);
+    const lines = text.split(/\r?\n/);
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i].trim();
@@ -112,7 +66,6 @@ export class AssStream {
             const [, key, value] = line.match(/^(\w+?)\s*:\s*(.*)/i);
             const eventType = key.toLowerCase();
             const eventValue = parseDialogue(value, this.eventFormat);
-            this.timeSegments.insert(eventValue.Start, eventValue.End);
             if (eventType === 'comment') this.newParsedComments.push(eventValue);
             if (eventType === 'dialogue') this.newParsedDialogues.push(eventValue);
           }
@@ -136,7 +89,10 @@ export class AssStream {
       styles: this.compiledStyles,
       dialogues: this.newParsedDialogues,
     }));
+    const result = [...this.newParsedDialogues];
     this.newParsedDialogues = [];
+
+    return result;
   }
 
   get compiled() {
